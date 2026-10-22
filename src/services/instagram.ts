@@ -118,8 +118,30 @@ async function getPage(): Promise<Page> {
 }
 
 async function hasSession(current: Page): Promise<boolean> {
-    const cookies = await current.context().cookies("https://www.instagram.com");
-    return cookies.some((cookie) => cookie.name === "sessionid" && cookie.value.length > 0);
+    const cookies = await current.context().cookies();
+    return cookies.some((cookie) => cookie.name === "sessionid" && cookie.value.length > 0 && cookie.domain.includes("instagram.com"));
+}
+
+function pageUrl(url: string): string {
+    try {
+        const parsed = new URL(url);
+        return `${parsed.origin}${parsed.pathname}`;
+    } catch {
+        return url.split("?")[0] ?? url;
+    }
+}
+
+async function refreshApprovedSession(current: Page): Promise<boolean> {
+    const probe = await current.context().newPage();
+    try {
+        await probe.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 20_000 });
+        await dismissDialogs(probe);
+        return await hasSession(probe);
+    } catch {
+        return await hasSession(current);
+    } finally {
+        await probe.close().catch(() => undefined);
+    }
 }
 
 function looksLikeCheckpoint(url: string, body: string): boolean {
@@ -171,14 +193,15 @@ async function waitForCheckpoint(current: Page): Promise<void> {
     const text = await current.locator("body").innerText().catch(() => "");
     const snippet = text.replace(/\s+/g, " ").trim().slice(0, 300);
     await sendLog(
-        `Instagram qurilma orqali tasdiqlash so'radi. Email shart emas.\nURL: ${current.url()}\n${snippet}\n\nShu akkaunt ochiq turgan telefonda bildirishnomani tasdiqlang. Brauzer 5 daqiqa ochiq turadi.`,
+        `Instagram qurilma orqali tasdiqlash so'radi. Email shart emas.\nURL: ${pageUrl(current.url())}\n${snippet}\n\nShu akkaunt ochiq turgan telefonda bildirishnomani tasdiqlang. Brauzer 5 daqiqa ochiq turadi.`,
     );
 
     beginCheckpointWait();
     try {
         const deadline = Date.now() + 5 * 60 * 1000;
+        let ticks = 0;
         while (Date.now() < deadline) {
-            if (await hasSession(current)) {
+            if ((await hasSession(current)) || (ticks > 0 && ticks % 5 === 0 && (await refreshApprovedSession(current)))) {
                 await dismissDialogs(current);
                 await saveSession();
                 await sendLog("Instagram tasdiqlandi. Sessiya saqlandi.");
@@ -189,6 +212,7 @@ async function waitForCheckpoint(current: Page): Promise<void> {
                 await submitCheckpointCode(current, code);
                 await sendLog("Kod yuborildi.");
             }
+            ticks += 1;
             await sleep(1000);
         }
     } finally {
