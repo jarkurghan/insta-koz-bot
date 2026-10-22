@@ -133,15 +133,21 @@ function looksLikeCheckpoint(url: string, body: string): boolean {
     );
 }
 
+const DISMISS_LABELS = ["Allow all cookies", "Decline optional cookies", "Only allow essential cookies", "Accept all", "Not now", "Hozir emas"];
+
 async function dismissDialogs(current: Page): Promise<void> {
-    for (let i = 0; i < 3; i++) {
-        const button = current
-            .getByRole("button", { name: /not now|hozir emas|allow all cookies|only allow essential|decline optional cookies/i })
-            .first();
-        const visible = await button.isVisible().catch(() => false);
-        if (!visible) break;
-        await button.click().catch(() => undefined);
-        await sleep(400);
+    for (let i = 0; i < 4; i++) {
+        let clicked = false;
+        for (const label of DISMISS_LABELS) {
+            const target = current.getByText(label, { exact: true }).first();
+            const visible = await target.isVisible().catch(() => false);
+            if (!visible) continue;
+            await target.click({ force: true }).catch(() => undefined);
+            clicked = true;
+            await sleep(400);
+            break;
+        }
+        if (!clicked) break;
     }
 }
 
@@ -151,16 +157,21 @@ async function login(current: Page): Promise<void> {
     const username = current.locator('input[name="email"], input[name="username"]').first();
     const password = current.locator('input[name="pass"], input[name="password"]').first();
     await username.waitFor({ state: "visible" });
-    lastLoginAttempt = Date.now();
     await username.fill(INSTAGRAM_USERNAME);
     await password.fill(INSTAGRAM_PASSWORD);
+    await dismissDialogs(current);
 
     const submit = current.locator("#login_form").getByText(/^log in$/i).first();
     if (await submit.isVisible().catch(() => false)) {
-        await submit.click();
+        try {
+            await submit.click({ force: true });
+        } catch {
+            await password.press("Enter");
+        }
     } else {
         await password.press("Enter");
     }
+    lastLoginAttempt = Date.now();
 
     const started = Date.now();
     while (Date.now() - started < 20_000) {
