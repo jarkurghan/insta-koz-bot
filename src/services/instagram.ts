@@ -84,7 +84,7 @@ async function getContext(): Promise<BrowserContext> {
     if (process.platform !== "win32") args.push("--no-sandbox", "--disable-dev-shm-usage");
 
     browser = await chromium.launch({
-        headless: process.platform !== "win32",
+        headless: false,
         timeout: 45_000,
         channel: process.platform === "win32" ? "chrome" : undefined,
         args,
