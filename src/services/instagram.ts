@@ -3,6 +3,8 @@ import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { INSTAGRAM_PASSWORD, INSTAGRAM_USERNAME, SESSION_PATH } from "../utils/constants";
 import { sleep } from "../utils/sleep";
+import { beginCheckpointWait, endCheckpointWait, pullCheckpointCode } from "./checkpoint-code";
+import { sendLog } from "./log";
 
 const USER_AGENT =
     process.platform === "win32"
@@ -122,15 +124,65 @@ async function hasSession(current: Page): Promise<boolean> {
 
 function looksLikeCheckpoint(url: string, body: string): boolean {
     const currentUrl = url.toLowerCase();
-    if (currentUrl.includes("/challenge") || currentUrl.includes("/checkpoint")) return true;
+    if (currentUrl.includes("/challenge") || currentUrl.includes("/checkpoint") || currentUrl.includes("/two_factor") || currentUrl.includes("/auth_platform") || currentUrl.includes("codeentry")) {
+        return true;
+    }
     const text = body.toLowerCase();
     return (
         text.includes("suspicious login") ||
         text.includes("help us confirm") ||
         text.includes("enter the code") ||
+        text.includes("enter the 6-digit") ||
         text.includes("tasdiqlash kodi") ||
-        text.includes("shubhali urinish")
+        text.includes("shubhali urinish") ||
+        text.includes("check your email") ||
+        text.includes("we sent a code")
     );
+}
+
+async function submitCheckpointCode(current: Page, code: string): Promise<void> {
+    const input = current
+        .locator('input[name="security_code"], input[name="verificationCode"], input[inputmode="numeric"], input[aria-label*="code" i], input[placeholder*="code" i]')
+        .first();
+    if (!(await input.isVisible().catch(() => false))) return;
+    await input.fill(code);
+    const confirm = current.getByRole("button", { name: /confirm|submit|continue|next|tasdiqlash|davom/i }).first();
+    if (await confirm.isVisible().catch(() => false)) {
+        await confirm.click({ force: true }).catch(() => undefined);
+    } else {
+        await input.press("Enter").catch(() => undefined);
+    }
+}
+
+async function waitForCheckpoint(current: Page): Promise<void> {
+    const text = await current.locator("body").innerText().catch(() => "");
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 300);
+    await sendLog(
+        `Instagram tasdiqlash so'radi.\nURL: ${current.url()}\n${snippet}\n\nTelefonda tasdiqlang yoki 6 xonali kodni shu chatga yuboring. 5 daqiqa kutiladi.`,
+    );
+
+    beginCheckpointWait();
+    try {
+        const deadline = Date.now() + 5 * 60 * 1000;
+        while (Date.now() < deadline) {
+            if (await hasSession(current)) {
+                await dismissDialogs(current);
+                await saveSession();
+                await sendLog("Instagram tasdiqlandi. Sessiya saqlandi.");
+                return;
+            }
+            const code = pullCheckpointCode();
+            if (code) {
+                await submitCheckpointCode(current, code);
+                await sendLog("Kod yuborildi.");
+            }
+            await sleep(1000);
+        }
+    } finally {
+        endCheckpointWait();
+    }
+
+    throw new InstagramCheckpointError("Instagram tasdiqlash 5 daqiqada tugamadi. Parol qayta yuborilmaydi.");
 }
 
 const DISMISS_LABELS = ["Allow all cookies", "Decline optional cookies", "Only allow essential cookies", "Accept all", "Not now", "Hozir emas"];
@@ -182,7 +234,8 @@ async function login(current: Page): Promise<void> {
         }
         const text = await current.locator("body").innerText().catch(() => "");
         if (looksLikeCheckpoint(current.url(), text)) {
-            throw new InstagramCheckpointError("Instagram tasdiqlash so'radi. Parol qayta yuborilmaydi.");
+            await waitForCheckpoint(current);
+            return;
         }
         await sleep(1000);
     }
@@ -201,8 +254,13 @@ export async function ensureLoggedIn(): Promise<void> {
 
     const body = await current.locator("body").innerText().catch(() => "");
     if (looksLikeCheckpoint(current.url(), body)) {
-        lastLoginAttempt = Date.now();
-        throw new InstagramCheckpointError("Instagram checkpoint ochiq. Parol qayta yuborilmaydi.");
+        try {
+            await waitForCheckpoint(current);
+            return;
+        } catch (error) {
+            lastLoginAttempt = Date.now();
+            throw error;
+        }
     }
 
     if (lastLoginAttempt && Date.now() - lastLoginAttempt < LOGIN_COOLDOWN_MS) {
