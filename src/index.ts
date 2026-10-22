@@ -1,10 +1,10 @@
 import { bot } from "./bot";
-import { parseBloggers } from "./services/parse-bloggers";
+import { loadBloggers } from "./services/parse-bloggers";
 import { watchBloggers } from "./scheduler/watch-bloggers";
-import { assertConfig, BLOGGERS_RAW } from "./utils/constants";
+import { assertConfig } from "./utils/constants";
 
 assertConfig();
-parseBloggers(BLOGGERS_RAW);
+loadBloggers();
 
 void bot.start({
     onStart: (me) => {

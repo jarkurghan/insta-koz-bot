@@ -1,7 +1,7 @@
-import { BLOGGERS_RAW, POLL_INTERVAL_MINUTES, PROFILE_DELAY_SECONDS } from "../utils/constants";
+import { POLL_INTERVAL_MINUTES, PROFILE_DELAY_SECONDS } from "../utils/constants";
 import { sleep } from "../utils/sleep";
 import { sendLog, sendNotify } from "../services/log";
-import { parseBloggers } from "../services/parse-bloggers";
+import { loadBloggers } from "../services/parse-bloggers";
 import { diffNewShortcodes, loadSeen, saveSeen } from "../services/seen-posts";
 import { closeBrowser, ensureLoggedIn, InstagramCheckpointError, postUrl, readProfilePosts } from "../services/instagram";
 
@@ -10,6 +10,12 @@ export type WatchStatus = {
     lastError: string | null;
     lastNotified: number;
     running: boolean;
+    enabled: boolean;
+};
+
+export type WatchActor = {
+    name: string;
+    id?: number;
 };
 
 const status: WatchStatus = {
@@ -17,10 +23,33 @@ const status: WatchStatus = {
     lastError: null,
     lastNotified: 0,
     running: false,
+    enabled: true,
 };
 
 export function getWatchStatus(): WatchStatus {
     return { ...status };
+}
+
+export function getWatchEnabled(): boolean {
+    return status.enabled;
+}
+
+export async function setWatchEnabled(next: boolean, actor: WatchActor): Promise<boolean> {
+    if (status.enabled === next) return false;
+    status.enabled = next;
+    if (!next) await closeBrowser();
+    const lines = [next ? "Kuzatuv yoqildi" : "Kuzatuv o'chirildi", `Kim: ${actor.name}`];
+    if (actor.id !== undefined) lines.push(`ID: ${actor.id}`);
+    await sendLog(lines.join("\n"));
+    return true;
+}
+
+async function sleepWhileEnabled(ms: number): Promise<void> {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+        if (!status.enabled) return;
+        await sleep(Math.min(1000, until - Date.now()));
+    }
 }
 
 function errorText(error: unknown): string {
@@ -54,13 +83,26 @@ function isBrowserClosed(error: unknown): boolean {
     return /has been closed|Target closed|Browser closed|context or browser/i.test(message);
 }
 
+async function stopRound(): Promise<void> {
+    await closeBrowser();
+}
+
 async function runRound(): Promise<void> {
-    const bloggers = parseBloggers(BLOGGERS_RAW);
+    if (!status.enabled) return;
+    const bloggers = loadBloggers();
     const seen = await loadSeen();
     await ensureLoggedIn();
+    if (!status.enabled) {
+        await stopRound();
+        return;
+    }
     let notified = 0;
 
     for (let i = 0; i < bloggers.length; i++) {
+        if (!status.enabled) {
+            await stopRound();
+            return;
+        }
         const username = bloggers[i]!;
         try {
             const result = await readProfilePosts(username);
@@ -96,8 +138,13 @@ async function runRound(): Promise<void> {
             await sendLog(`@${username}: ${errorText(error)}`);
         }
 
+        if (!status.enabled) {
+            await stopRound();
+            return;
+        }
+
         if (i < bloggers.length - 1) {
-            await sleep(PROFILE_DELAY_SECONDS * 1000);
+            await sleepWhileEnabled(PROFILE_DELAY_SECONDS * 1000);
         }
     }
 
@@ -108,10 +155,18 @@ async function runRound(): Promise<void> {
 
 export async function watchBloggers(): Promise<void> {
     status.running = true;
-    const bloggers = parseBloggers(BLOGGERS_RAW);
+    status.enabled = true;
+    const bloggers = loadBloggers();
     console.log(`Kuzatuv boshlandi: ${bloggers.length} ta bloger, interval ${POLL_INTERVAL_MINUTES} daqiqa`);
+    await sendLog("Kuzatuv yoqildi\nKim: ishga tushirish");
 
     while (true) {
+        if (!status.enabled) {
+            await closeBrowser();
+            await sleep(1000);
+            continue;
+        }
+
         let launchFailed = false;
         try {
             await runRound();
@@ -124,6 +179,8 @@ export async function watchBloggers(): Promise<void> {
             if (changed) await sendLog(message);
             await closeBrowser();
         }
-        await sleep(launchFailed ? 30_000 : POLL_INTERVAL_MINUTES * 60 * 1000);
+
+        if (!status.enabled) continue;
+        await sleepWhileEnabled(launchFailed ? 30_000 : POLL_INTERVAL_MINUTES * 60 * 1000);
     }
 }

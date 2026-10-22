@@ -27,7 +27,11 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-`BLOGGERS` vergul bilan, `@` siz yoziladi. Namunada: `cristiano,natgeo,nasa`.
+Blogerlar `src/utils/bloggers.json` da, `@` siz:
+
+```json
+["cristiano", "natgeo", "nasa"]
+```
 
 Birinchi aylanishda mavjud postlar saqlanadi, xabar ketmaydi. Keyin yangi post chiqsa `NOTIFY_CHAT_ID` ga link yuboriladi.
 
@@ -39,5 +43,6 @@ Instagram checkpoint so'rasa, bot parolni qayta yubormaydi va `LOG_CHAT_ID` ga y
 
 ## Buyruqlar
 
-- `/start` — kuzatilayotgan blogerlar soni
-- `/status` — oxirgi aylanish vaqti va xato
+- `/start` — kuzatilayotgan blogerlar soni va yoqish/o'chirish tugmalari
+- `/status` — holat, oxirgi aylanish vaqti va xato
+- `Kuzatuvni yoqish` / `Kuzatuvni o'chirish` — istalgan foydalanuvchi kuzatuvni boshqaradi. Har bir o'zgarish `LOG_CHAT_ID` ga kim qilgani bilan yoziladi. Ishga tushganda kuzatuv yoniq bo'ladi.
