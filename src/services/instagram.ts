@@ -154,11 +154,24 @@ async function submitCheckpointCode(current: Page, code: string): Promise<void> 
     }
 }
 
+async function chooseDeviceApproval(current: Page): Promise<void> {
+    const option = current.getByText(/another device|other device|already logged in|instagram app|check your notifications/i).first();
+    if (!(await option.isVisible().catch(() => false))) return;
+    await option.click({ force: true }).catch(() => undefined);
+    await sleep(600);
+    const next = current.getByRole("button", { name: /continue|next|send notification/i }).first();
+    if (await next.isVisible().catch(() => false)) {
+        await next.click({ force: true }).catch(() => undefined);
+        await sleep(800);
+    }
+}
+
 async function waitForCheckpoint(current: Page): Promise<void> {
+    await chooseDeviceApproval(current);
     const text = await current.locator("body").innerText().catch(() => "");
     const snippet = text.replace(/\s+/g, " ").trim().slice(0, 300);
     await sendLog(
-        `Instagram tasdiqlash so'radi.\nURL: ${current.url()}\n${snippet}\n\nTelefonda tasdiqlang yoki 6 xonali kodni shu chatga yuboring. 5 daqiqa kutiladi.`,
+        `Instagram qurilma orqali tasdiqlash so'radi. Email shart emas.\nURL: ${current.url()}\n${snippet}\n\nShu akkaunt ochiq turgan telefonda bildirishnomani tasdiqlang. Brauzer 5 daqiqa ochiq turadi.`,
     );
 
     beginCheckpointWait();
