@@ -1,0 +1,19 @@
+{
+    "name": "insta-koz-bot",
+    "version": "1.0.0",
+    "scripts": {
+        "dev": "node --env-file=.env --import tsx --watch src/index.ts",
+        "start": "node --env-file=.env --import tsx src/index.ts",
+        "test": "bun test"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.2.0",
+        "tsx": "^4.23.15",
+        "typescript": "^5.5.2"
+    },
+    "dependencies": {
+        "@grammyjs/auto-retry": "^2.0.2",
+        "grammy": "^1.38.4",
+        "playwright": "^1.58.2"
+    }
+}
